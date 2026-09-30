@@ -1,0 +1,182 @@
+#cloud-config
+autoinstall:
+  version: 1
+  locale: en_US.UTF-8
+  keyboard:
+    layout: us
+
+  timezone: Europe/Moscow
+
+  # Отключаем cdrom, используем только сеть
+  apt:
+    disable_components: []
+    primary:
+      - arches: [default]
+        uri: "http://mirror.yandex.ru/ubuntu"
+    geoip: false
+
+  # Сеть - DHCP на всех интерфейсах
+  network:
+    version: 2
+    ethernets:
+      all-en:
+        match:
+          name: "en*"
+        dhcp4: true
+
+  ssh:
+    install-server: true
+    allow-pw: true
+
+  # ИСПРАВЛЕННАЯ конфигурация хранилища
+  storage:
+    config:
+      - type: disk
+        id: root-disk
+        ptable: gpt
+        wipe: superblock
+        preserve: false
+        match:
+          size: largest
+
+      # EFI раздел - 1G с флагом boot
+      - type: partition
+        id: part-efi
+        device: root-disk
+        size: 1G
+        flag: esp
+        number: 1
+        preserve: false
+        grub_device: true
+
+      # Boot раздел - 1G
+      - type: partition
+        id: part-boot
+        device: root-disk
+        size: 1G
+        number: 2
+        preserve: false
+
+      # LVM PV - всё оставшееся
+      - type: partition
+        id: part-lvm
+        device: root-disk
+        size: -1
+        number: 3
+        preserve: false
+
+      # Форматирование EFI
+      - type: format
+        id: fmt-efi
+        volume: part-efi
+        fstype: fat32
+        preserve: false
+
+      # Форматирование boot
+      - type: format
+        id: fmt-boot
+        volume: part-boot
+        fstype: xfs
+        preserve: false
+
+      # LVM Volume Group
+      - type: lvm_volgroup
+        id: vg-sys
+        name: sys
+        devices: [part-lvm]
+        preserve: false
+
+      # Logical Volumes
+      - type: lvm_partition
+        id: lv-var
+        name: var
+        volgroup: vg-sys
+        size: 5G
+        preserve: false
+
+      - type: lvm_partition
+        id: lv-swap
+        name: swap
+        volgroup: vg-sys
+        size: 2G
+        preserve: false
+
+      - type: lvm_partition
+        id: lv-home
+        name: home
+        volgroup: vg-sys
+        size: 5G
+        preserve: false
+
+      - type: lvm_partition
+        id: lv-root
+        name: root
+        volgroup: vg-sys
+        size: 10G
+        preserve: false
+
+      # Форматирование LV
+      - type: format
+        id: fmt-var
+        volume: lv-var
+        fstype: xfs
+        preserve: false
+
+      - type: format
+        id: fmt-swap
+        volume: lv-swap
+        fstype: swap
+        preserve: false
+
+      - type: format
+        id: fmt-home
+        volume: lv-home
+        fstype: xfs
+        preserve: false
+
+      - type: format
+        id: fmt-root
+        volume: lv-root
+        fstype: xfs
+        preserve: false
+
+      # Точки монтирования
+      - type: mount
+        id: mount-efi
+        device: fmt-efi
+        path: /boot/efi
+
+      - type: mount
+        id: mount-boot
+        device: fmt-boot
+        path: /boot
+
+      - type: mount
+        id: mount-var
+        device: fmt-var
+        path: /var
+
+      - type: mount
+        id: mount-home
+        device: fmt-home
+        path: /home
+
+      - type: mount
+        id: mount-root
+        device: fmt-root
+        path: /
+
+  identity:
+    hostname: ubuntu26-template
+    username: ansible
+    password: "$6$y/lW7TuJRHkCn54H$hOCIptiU1dFLpbqdGjK8IntTWbr4hic9jY5x2rPna7lcyWxXgx4EWlaTQPxiNp/yHbKHNyeDXMWjW70bTVoEQ/"
+
+  late-commands:
+ #   - curtin in-target --target=/target -- bash -c "echo 'root:$6$y/lW7TuJRHkCn54H$hOCIptiU1dFLpbqdGjK8IntTWbr4hic9jY5x2rPna7lcyWxXgx4EWlaTQPxiNp/yHbKHNyeDXMWjW70bTVoEQ/' | chpasswd -e"
+    - curtin in-target --target=/target -- apt-get update
+    - curtin in-target --target=/target -- apt-get install -y qemu-guest-agent xfsprogs tree vim net-tools traceroute telnet wget curl
+    - curtin in-target --target=/target -- systemctl enable qemu-guest-agent
+    - curtin in-target --target=/target -- bash -c 'echo "ansible ALL=(root) NOPASSWD:ALL" > /etc/sudoers.d/ansible'
+   # - curtin in-target --target=/target -- chmod 0440 /etc/sudoers.d/ansible
+
+ # packages: []
